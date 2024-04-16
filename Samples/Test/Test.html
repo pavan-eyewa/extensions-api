@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Conditional Formatting Extension</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Conditional Formatting Extension</h1>
+  <label for="sheet-selection">Select a Sheet:</label>
+  <select id="sheet-selection">
+  </select>
+  <br><br>
+  <table id="data-table">
+  </table>
+
+
+  <script src="../../lib/tableau.extensions.1.latest.js"></script>
+  <script>
+    'use strict';
+
+    let worksheet;
+
+    $(document).ready(function () {
+      tableau.extensions.initializeAsync().then(function () {
+        populateSheetSelection();
+        loadData();
+
+        // Listen for filter change events
+        tableau.extensions.dashboardContent.dashboard.worksheets.forEach(worksheet => {
+          worksheet.addEventListener(tableau.TableauEventType.FilterChanged, loadData);
+        });
+      });
+    });
+
+
+    // Populate the sheet selection dropdown with available sheets
+    function populateSheetSelection() {
+      const sheets = tableau.extensions.dashboardContent.dashboard.worksheets;
+      sheets.forEach((sheet) => {
+        const option = $('<option>').val(sheet.name).text(sheet.name);
+        $('#sheet-selection').append(option);
+      });
+    }
+
+
+
+// Load data from the selected sheet and display in a table
+async function loadData() {
+  const selectedSheetName = $('#sheet-selection').val();
+  worksheet = tableau.extensions.dashboardContent.dashboard.worksheets.find(sheet => sheet.name === selectedSheetName);
+  const summaryData = await worksheet.getSummaryDataAsync();
+
+  // Columns to format as currency
+  const currencyColumns = ['SUM(Gross Revenue Usd)', 'SUM(Net Revenue Usd)'];
+
+  // Build the table
+  const columns = summaryData.columns.map(column => `<th>${column.fieldName}</th>`).join('');
+  const rows = summaryData.data.map(row => {
+    const cells = row.map((cell, i) => {
+      let cellContent = `<td>${cell.formattedValue}</td>`;
+      if (currencyColumns.includes(summaryData.columns[i].fieldName)) {
+        cellContent = `<td>$${cell.formattedValue}</td>`;
+      }
+      return cellContent;
+    }).join('');
+    return `<tr>${cells}</tr>`;
+  }).join('');
+  const table = `<thead><tr>${columns}</tr></thead><tbody>${rows}</tbody>`;
+  $('#data-table').html(table);
+
+  // Highlight rows where SUM(Gross Revenue Usd) > 0
+  highlightRows();
+}
+
+
+
+    // Highlight rows where SUM(Gross Revenue Usd) > 0
+    async function highlightRows() {
+      const summaryData = await worksheet.getSummaryDataAsync();
+      const grossRevenueUsdIndex = summaryData.columns.findIndex(column => column.fieldName === 'SUM(Gross Revenue Usd)');
+      if (grossRevenueUsdIndex === -1) {
+        console.error('Gross Revenue Usd not found in the sheet.');
+        return;
+      }
+
+      const $rows = $('#data-table tbody tr');
+      $rows.each((index, row) => {
+        let sum = 0;
+        $(row).find('td').each((i, cell) => {
+          if (i === grossRevenueUsdIndex) {
+            const cellValue = $(cell).text().replace(/[^0-9.-]/g, '');
+            if (cellValue !== '') { // Check for empty string (missing value)
+              const parsedValue = parseFloat(cellValue);
+              if (!isNaN(parsedValue)) {
+                sum += parsedValue;
+              } else {
+                console.warn(`Invalid value in cell for SUM(Gross Revenue Usd): ${cellValue}`);
+              }
+            }
+          }
+        });
+        console.log(`Row ${index+1}: sum = ${sum}`);
+
+        if (sum > 0) {
+          // Target the specific cell at grossRevenueUsdIndex
+          $(row).find('td').eq(grossRevenueUsdIndex).attr('style', 'background-color: yellow; font-weight: bold;');
+        }
+      });
+    }
+  </script>
+</body>
+</html>
